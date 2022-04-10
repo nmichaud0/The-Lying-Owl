@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from nnls_opt import combiner_solve
+from .nnls_opt import combiner_solve
 from sklearn.metrics import balanced_accuracy_score, cohen_kappa_score
 import optuna
 
@@ -47,7 +47,7 @@ def nnls_optimizer(predictions: np.array, true_labels: np.array,
     if accuracy_metric == "balanced_accuracy":
         acc_metric = balanced_accuracy_score
 
-    if accuracy_metric == "cohen_kappa_score":
+    elif accuracy_metric == "cohen_kappa_score":
         acc_metric = cohen_kappa_score
 
     else:

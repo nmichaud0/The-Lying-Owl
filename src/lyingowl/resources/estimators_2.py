@@ -533,7 +533,7 @@ class SubSuperLearnerClassifier(BasicClassifier):
     def predict(self, X):
 
         if self.fitted:
-            if X == self.training_data_transformed or X == self.training_data:
+            if np.array_equal(X, self.training_data_transformed) or np.array_equal(X, self.training_data):
                 transformed_X = self.training_data_transformed
             else:
                 transformed_X = self.transformer.encode(X)
@@ -545,7 +545,7 @@ class SubSuperLearnerClassifier(BasicClassifier):
     def predict_proba(self, X):
 
         if self.fitted:
-            if X == self.training_data_transformed or X == self.training_data:
+            if np.array_equal(X, self.training_data_transformed) or np.array_equal(X, self.training_data):
                 transformed_X = self.training_data_transformed
             else:
                 transformed_X = self.transformer.encode(X)

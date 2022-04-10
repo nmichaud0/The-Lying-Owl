@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 from resources.estimators_2 import *
 from resources.optimizers import nnls_optimizer, optuna_optimizer, predict_nnls_optuna
@@ -12,6 +13,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import train_test_split
 import os
 
 
@@ -24,11 +26,12 @@ import os
 
 
 class SuperLearner:
-    def __init__(self, categorized_data, categorized_labels, prediction_data=None):
+    def __init__(self, categorized_data, categorized_labels, prediction_data=None, testing=False):
 
         self.categorized_data = categorized_data
         self.categorized_labels = categorized_labels
         self.prediction_data = prediction_data
+        self.testing = testing
         self.superlearner_predictions = None
 
         self.text_data = None
@@ -66,12 +69,19 @@ class SuperLearner:
                            GaussianNB(),
                            KNeighborsClassifier(),
                            xgb.XGBClassifier(eval_metric='auc', use_label_encoder=False)]
+                           
+        self.supervising_bool = [True, False]
+        
+        if self.testing:
+            self.lang_models = [self.lang_models[0]]
+            self.supervising_bool = [False]
+            self.est_models = self.est_models[:3]
 
         self.est_models_labels = []
 
         for lang_model in self.lang_models:
             for est_model in self.est_models:
-                for supervising in [True, False]:
+                for supervising in self.supervising_bool:
                     self.est_models_labels.append(f'{lang_model}_{est_model.__class__.__name__}_{supervising}')
 
         self.model_count = len(self.est_models_labels)
@@ -123,14 +133,14 @@ class SuperLearner:
 
         for lang_model in self.lang_models:
             for est_model in self.est_models:
-                for supervising in [True, False]:
+                for supervising in self.supervising_bool:
 
                     current_model_label = f'{lang_model}_{est_model.__class__.__name__}_{supervising}'
 
-                    if current_model_label not in self.models_fitted_labels:
+                    if current_model_label in self.models_fitted_labels:
                         print(f'Model {current_model_label} already fitted, skipping')
                         continue
-
+                    print(current_model_label, self.models_fitted, '/', self.model_count)
                     current_model = SubSuperLearnerClassifier(language_model=lang_model,
                                                               model=est_model,
                                                               searching=supervising,
@@ -149,32 +159,39 @@ class SuperLearner:
 
                     # Predictions ---------------------------------------------------------
                     if self.prediction_data is not None:
-                        self.predictions[current_model_label] = current_model.predict_proba(self.prediction_data)
+                        self.predictions[current_model_label] = current_model.predict_proba(self.prediction_data)[:,1]
 
                     # Evaluating the model ------------------------------------------------
+                    
+                    self.training_data[current_model_label] = {}
+                    self.validation_data[current_model_label] = {}
+                    self.test_data[current_model_label] = {}
 
-                    training_data_predictions = current_model.predict_proba(self.train_text_data)
+                    training_data_predictions = current_model.predict(self.train_text_data)
+                    training_data_proba = current_model.predict_proba(self.train_text_data)[:,1]
                     self.training_bacc[current_model_label] = balanced_accuracy_score(training_data_predictions,
                                                                                       self.train_label_data)
                     self.training_kappa[current_model_label] = cohen_kappa_score(training_data_predictions,
                                                                                  self.train_label_data)
-                    self.training_data[current_model_label]['predictions'] = training_data_predictions
+                    self.training_data[current_model_label]['predictions'] = training_data_proba
                     self.training_data[current_model_label]['labels'] = self.train_label_data
 
-                    validation_data_predictions = current_model.predict_proba(self.validation_text_data)
+                    validation_data_predictions = current_model.predict(self.validation_text_data)
+                    validation_data_proba = current_model.predict_proba(self.validation_text_data)[:,1]
                     self.validation_bacc[current_model_label] = balanced_accuracy_score(validation_data_predictions,
                                                                                         self.validation_label_data)
                     self.validation_kappa[current_model_label] = cohen_kappa_score(validation_data_predictions,
                                                                                    self.validation_label_data)
-                    self.validation_data[current_model_label]['predictions'] = validation_data_predictions
+                    self.validation_data[current_model_label]['predictions'] = validation_data_proba
                     self.validation_data[current_model_label]['labels'] = self.validation_label_data
 
-                    test_data_predictions = current_model.predict_proba(self.test_text_data)
+                    test_data_predictions = current_model.predict(self.test_text_data)
+                    test_data_proba = current_model.predict_proba(self.test_text_data)[:,1]
                     self.test_bacc[current_model_label] = balanced_accuracy_score(test_data_predictions,
                                                                                   self.test_label_data)
                     self.test_kappa[current_model_label] = cohen_kappa_score(test_data_predictions,
                                                                              self.test_label_data)
-                    self.test_data[current_model_label]['predictions'] = test_data_predictions
+                    self.test_data[current_model_label]['predictions'] = test_data_proba
                     self.test_data[current_model_label]['labels'] = self.test_label_data
 
                     self.models_fitted += 1
@@ -200,9 +217,16 @@ class SuperLearner:
 
         # Need to concatenate all the predictions from all the models
 
-        validation_predictions = np.array([])
-        test_predictions = np.array([])
+        validation_predictions = None
+        test_predictions = None
+        print(self.validation_data)
         for trained_model in self.validation_data.keys():
+            
+            if validation_predictions is None:
+                validation_predictions = self.validation_data[trained_model]['predictions']
+                test_predictions = self.test_data[trained_model]['predictions']
+                continue
+                
             validation_predictions = np.column_stack((validation_predictions,
                                                       self.validation_data[trained_model]['predictions']))
 
@@ -210,22 +234,22 @@ class SuperLearner:
                                                 self.test_data[trained_model]['predictions']))
 
         if self.betas_optimizer == 'optuna':
-            opt_dict = optuna_optimizer(_predictions_=self.validation_data['predictions'],
-                                        true_labels=self.validation_data['labels'],
+            opt_dict = optuna_optimizer(_predictions_=validation_predictions,
+                                        true_labels=self.validation_label_data,
                                         ntrials=ntrials,
                                         accuracy_metric=metric,
-                                        test_set=self.test_data['predictions'],
-                                        test_set_labels=self.test_data['labels'])
+                                        test_set=test_predictions,
+                                        test_set_labels=self.test_label_data)
         else:
-            opt_dict = nnls_optimizer(predictions=self.validation_data['predictions'],
-                                      true_labels=self.validation_data['labels'],
+            opt_dict = nnls_optimizer(predictions=validation_predictions,
+                                      true_labels=self.validation_label_data,
                                       accuracy_metric=metric,
-                                      test_set=self.test_data['predictions'],
-                                      test_set_labels=self.test_data['labels'])
+                                      test_set=test_predictions,
+                                      test_set_labels=self.test_label_data)
 
         self.betas = opt_dict['betas']
         self.validation_metrics = opt_dict['validation_metrics']
-        self.test_metrics = opt_dict['test_metrics']
+        self.test_metrics = opt_dict['test_set_metrics']
         print('Betas optimized')
 
     def predict(self, text_data: np.array) -> np.array:
@@ -244,9 +268,14 @@ class SuperLearner:
 
         # Need to concatenate all the predictions from all the models
 
-        predictions = np.array([])
+        predictions = None
         for trained_model in self.models_fitted_labels:
+            if predictions is None:
+                predictions = self.predictions[trained_model]
+                continue
             predictions = np.column_stack((predictions, self.predictions[trained_model]))
+            
+        predictions = predictions.T
 
         return predict_nnls_optuna(predictions, self.betas, self.betas_optimizer)
 
@@ -272,6 +301,7 @@ class SuperLearner:
         structure = {'model': 0, 'language model': 1, 'supervised learner': 2, 'soft_hard': 3}
 
         z_range = [0, 1] if metric == 'cohen_kappa_score' else [.5, 1]
+        z_range = [np.min(data), np.max(data)] if beta else z_range
 
         x = []
         y = []
@@ -281,6 +311,9 @@ class SuperLearner:
                 supervised = ' Supervised'
             else:
                 supervised = ' Unsupervised'
+                
+            if model_[structure['model']] == 'SuperLearner':
+                supervised = ''
 
             x.append(model_[structure['model']] + supervised)
             y.append(model_[structure['language model']])
@@ -291,9 +324,11 @@ class SuperLearner:
         df_HM = df_HM.sort_values(by=['model', 'language model'])
 
         # TODO: Warning! Could mess with superlearner
+        
+        title__ = 'Beta' if beta else f'{data_type.capitalize()} data: {metric}'
 
         heatmap = AccHeatmap(df=df_HM,
-                             title=f'{data_type.capitalize()} data: {metric}',
+                             title=title__,
                              x_title='Language models',
                              y_title='Models',
                              z_range=z_range)
@@ -301,6 +336,9 @@ class SuperLearner:
         heatmap.plot()
 
     def save_data(self, directory_path: str) -> None:
+        
+        if not self.fitted:
+            raise RuntimeError('SuperLearner not fitted yet')
 
         # Data to save:
         # 1. betas (specified optimizer) + validation_metrics + test_metrics + models_fitted_labels // heatmaps data
@@ -324,14 +362,23 @@ class SuperLearner:
             test_bacc_col.append(self.test_bacc[trained_model])
             test_kappa_col.append(self.test_kappa[trained_model])
 
-        betas_col.append(np.nan)
+        betas_col = np.append(betas_col, np.nan)
         train_bacc_col.append(np.nan)
         train_kappa_col.append(np.nan)
         val_bacc_col.append(self.validation_metrics['balanced_accuracy'])
-        val_kappa_col.append(self.validation_metrics['cohen_kappa_score'])
+        val_kappa_col.append(self.validation_metrics["cohen's kappa"])
         test_bacc_col.append(self.test_metrics['balanced_accuracy'])
-        test_kappa_col.append(self.test_metrics['cohen_kappa_score'])
-        models_df.append('SuperLearner')
+        test_kappa_col.append(self.test_metrics["cohen's kappa"])
+        models_df.append('SuperLearner_all_SuperLearner')
+        
+        print(betas_col)
+        print(train_bacc_col)
+        print(train_kappa_col)
+        print(val_bacc_col)
+        print(val_kappa_col)
+        print(test_bacc_col)
+        print(test_kappa_col)
+        print(models_df)
 
         df_1 = pd.DataFrame({'models_fitted_labels': models_df,
                              'betas': betas_col,
@@ -351,14 +398,15 @@ class SuperLearner:
                              'SuperLearner_predictions': self.superlearner_predictions})
 
         # --------------------------------------------------------------------------------------------------------------
-        os.mkdir(directory_path)
+        if not os.path.isdir(directory_path):
+            os.mkdir(directory_path)
 
         df_1.to_excel(f'{directory_path}/betas_and_metrics.xlsx')
         df_2.to_excel(f'{directory_path}/predictions.xlsx')
         print('Data Saved')
 
 
-sl = SuperLearner(['bruh', 'bruh2'], [1, 0], '/Users/nizarmichaud/Documents/LyingOwl_SuperLearner_Test_0/')
+#sl = SuperLearner(['bruh', 'bruh2'], [1, 0], '/Users/nizarmichaud/Documents/LyingOwl_SuperLearner_Test_0/')
 
 # Computing everything from data that went out from AWS:
 """
