@@ -219,7 +219,7 @@ class SuperLearner:
 
         validation_predictions = None
         test_predictions = None
-        print(self.validation_data)
+        
         for trained_model in self.validation_data.keys():
             
             if validation_predictions is None:
@@ -370,15 +370,6 @@ class SuperLearner:
         test_bacc_col.append(self.test_metrics['balanced_accuracy'])
         test_kappa_col.append(self.test_metrics["cohen's kappa"])
         models_df.append('SuperLearner_all_SuperLearner')
-        
-        print(betas_col)
-        print(train_bacc_col)
-        print(train_kappa_col)
-        print(val_bacc_col)
-        print(val_kappa_col)
-        print(test_bacc_col)
-        print(test_kappa_col)
-        print(models_df)
 
         df_1 = pd.DataFrame({'models_fitted_labels': models_df,
                              'betas': betas_col,
