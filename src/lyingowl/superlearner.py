@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from resources.estimators_2 import *
+from resources.estimators_3 import *
 from resources.optimizers import nnls_optimizer, optuna_optimizer, predict_nnls_optuna
 from resources.visualization import AccHeatmap
 from sklearn.ensemble import RandomForestClassifier
@@ -26,28 +26,47 @@ import os
 
 
 class SuperLearner:
-    def __init__(self, categorized_data, categorized_labels, prediction_data=None, testing=False):
+    def __init__(self, categorized_data, categorized_labels, prediction_data=None, testing=False,
+                 directory: str = None, hyperparameters_optimizer: str = 'optuna' or 'sklearn') -> None:
 
         self.categorized_data = categorized_data
         self.categorized_labels = categorized_labels
         self.prediction_data = prediction_data
         self.testing = testing
+        self.directory = directory
+        self.hyperparameters_optimizer = hyperparameters_optimizer
         self.superlearner_predictions = None
+
+
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        if not os.path.exists(f'{directory}/TLO'):
+            os.makedirs(f'{directory}/TLO')
+        else:
+            print("raise FileExistsError(f'{directory}/TLO already exists, please set up warm start')")
+
+        self.tlo_directory = f'{directory}/TLO'
+
+        # TODO: make warm start
 
         self.text_data = None
         self.label_data = None
 
-        self.train_text_data = None
-        self.train_label_data = None
+        self.train_text_data, test_text_data = train_test_split(self.categorized_data, test_size=0.2,
+                                                                random_state=42)
+        self.train_label_data, test_label_data = train_test_split(self.categorized_labels, test_size=0.2,
+                                                                  random_state=42)
 
-        self.validation_text_data = None
-        self.validation_label_data = None
-
-        self.test_text_data = None
-        self.test_label_data = None
+        self.validation_text_data, self.test_text_data = train_test_split(test_text_data, test_size=0.5,
+                                                                          random_state=42)
+        self.validation_label_data, self.test_label_data = train_test_split(test_label_data, test_size=0.5,
+                                                                            random_state=42)
 
         self.fitted = False
         self.betas = None
+
+        # --- Models ---
 
         self.lang_models = ['distiluse-base-multilingual-cased-v1',
                             'distiluse-base-multilingual-cased-v2',
@@ -85,11 +104,13 @@ class SuperLearner:
                     self.est_models_labels.append(f'{lang_model}_{est_model.__class__.__name__}_{supervising}')
 
         self.model_count = len(self.est_models_labels)
+        
+        print(f'Model count = {self.model_count}')
 
         self.models_fitted = 0
         self.models_fitted_labels = []
 
-        self.transformed_train_data_dict = {}
+        # --- Models ---
 
         self.training_data = {}
         self.validation_data = {}
@@ -121,17 +142,22 @@ class SuperLearner:
 
         self.betas_optimizer = beta_optimizer
 
-        self.train_text_data, test_text_data = train_test_split(self.categorized_data, test_size=0.2,
-                                                                random_state=42)
-        self.train_label_data, test_label_data = train_test_split(self.categorized_labels, test_size=0.2,
-                                                                  random_state=42)
-
-        self.validation_text_data, self.test_text_data = train_test_split(test_text_data, test_size=0.5,
-                                                                          random_state=42)
-        self.validation_label_data, self.test_label_data = train_test_split(test_label_data, test_size=0.5,
-                                                                            random_state=42)
-
         for lang_model in self.lang_models:
+            
+            print(lang_model)
+
+            data_transformer = DataTransformer(transformer=lang_model)
+
+            transformed_train = data_transformer.transform(self.train_text_data)
+
+            transformed_validation = data_transformer.transform(self.validation_text_data)
+
+            transformed_test = data_transformer.transform(self.test_text_data)
+
+            transformed_predictions = data_transformer.transform(self.prediction_data)
+            
+            print('data transformed')
+
             for est_model in self.est_models:
                 for supervising in self.supervising_bool:
 
@@ -148,18 +174,14 @@ class SuperLearner:
 
                     # Fitting the model --------------------------------------------------
 
-                    if lang_model in self.transformed_train_data_dict.keys():
-                        current_model.fit(self.transformed_train_data_dict[lang_model], self.train_label_data,
-                                          transformed_X=True)
-                    else:
-                        current_model.fit(self.train_text_data, self.train_label_data, transformed_X=False)
-                        self.transformed_train_data_dict[lang_model] = current_model.training_data_transformed
+                    current_model.fit(transformed_train, self.train_label_data,
+                                      algorithm=self.hyperparameters_optimizer)
 
                     # ----------------------------------------------------------------------
 
                     # Predictions ---------------------------------------------------------
                     if self.prediction_data is not None:
-                        self.predictions[current_model_label] = current_model.predict_proba(self.prediction_data)[:,1]
+                        self.predictions[current_model_label] = current_model.predict_proba(transformed_predictions)[:, 1]
 
                     # Evaluating the model ------------------------------------------------
                     
@@ -167,8 +189,9 @@ class SuperLearner:
                     self.validation_data[current_model_label] = {}
                     self.test_data[current_model_label] = {}
 
-                    training_data_predictions = current_model.predict(self.train_text_data)
-                    training_data_proba = current_model.predict_proba(self.train_text_data)[:,1]
+                    # Training data -------------------------------------------------------
+                    training_data_proba = current_model.predict_proba(transformed_train)[:, 1]
+                    training_data_predictions = np.round(training_data_proba)
                     self.training_bacc[current_model_label] = balanced_accuracy_score(training_data_predictions,
                                                                                       self.train_label_data)
                     self.training_kappa[current_model_label] = cohen_kappa_score(training_data_predictions,
@@ -176,8 +199,9 @@ class SuperLearner:
                     self.training_data[current_model_label]['predictions'] = training_data_proba
                     self.training_data[current_model_label]['labels'] = self.train_label_data
 
-                    validation_data_predictions = current_model.predict(self.validation_text_data)
-                    validation_data_proba = current_model.predict_proba(self.validation_text_data)[:,1]
+                    # Validation data -----------------------------------------------------
+                    validation_data_proba = current_model.predict_proba(transformed_validation)[:, 1]
+                    validation_data_predictions = np.round(validation_data_proba)
                     self.validation_bacc[current_model_label] = balanced_accuracy_score(validation_data_predictions,
                                                                                         self.validation_label_data)
                     self.validation_kappa[current_model_label] = cohen_kappa_score(validation_data_predictions,
@@ -185,14 +209,23 @@ class SuperLearner:
                     self.validation_data[current_model_label]['predictions'] = validation_data_proba
                     self.validation_data[current_model_label]['labels'] = self.validation_label_data
 
-                    test_data_predictions = current_model.predict(self.test_text_data)
-                    test_data_proba = current_model.predict_proba(self.test_text_data)[:,1]
+                    # Test data -----------------------------------------------------------
+                    test_data_proba = current_model.predict_proba(transformed_test)[:, 1]
+                    test_data_predictions = np.round(test_data_proba)
                     self.test_bacc[current_model_label] = balanced_accuracy_score(test_data_predictions,
                                                                                   self.test_label_data)
                     self.test_kappa[current_model_label] = cohen_kappa_score(test_data_predictions,
                                                                              self.test_label_data)
                     self.test_data[current_model_label]['predictions'] = test_data_proba
                     self.test_data[current_model_label]['labels'] = self.test_label_data
+
+                    # ----------------------------------------------------------------------
+
+                    # Saving the data -----------------------------------------------------
+
+                    # One file for accuracies
+                    # One directory for predictions
+                    # One file for training data, one for validation data, one for test data, and one for predictions
 
                     self.models_fitted += 1
                     self.models_fitted_labels.append(f'{lang_model}_{est_model.__class__.__name__}_{supervising}')
@@ -335,7 +368,7 @@ class SuperLearner:
 
         heatmap.plot()
 
-    def save_data(self, directory_path: str) -> None:
+    def save_data(self) -> None:
         
         if not self.fitted:
             raise RuntimeError('SuperLearner not fitted yet')
@@ -389,11 +422,14 @@ class SuperLearner:
                              'SuperLearner_predictions': self.superlearner_predictions})
 
         # --------------------------------------------------------------------------------------------------------------
-        if not os.path.isdir(directory_path):
-            os.mkdir(directory_path)
+        
+        data_dir = f'{self.tlo_directory}/data'
+        
+        if not os.path.isdir(data_dir):
+            os.mkdir(data_dir)
 
-        df_1.to_excel(f'{directory_path}/betas_and_metrics.xlsx')
-        df_2.to_excel(f'{directory_path}/predictions.xlsx')
+        df_1.to_excel(f'{data_dir}/betas_and_metrics.xlsx')
+        df_2.to_excel(f'{data_dir}/predictions.xlsx')
         print('Data Saved')
 
 
