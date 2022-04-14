@@ -122,7 +122,11 @@ class XGBSearching:
             rscv.fit(self.X, self.y)
             print('XGB searching ends')
 
-            return xgb.XGBClassifier(rscv.best_params_)
+            return xgb.XGBClassifier(eval_metric='auc',
+                                     use_label_encoder=False,
+                                     n_estimators=rscv.best_params_['n_estimators'],
+                                     booster=rscv.best_params_['booster'],
+                                     learning_rate=rscv.best_params_['learning_rate'])
         else:
             raise ValueError(f'Algorithm: {self.algorithm} not supported. You can use optuna or sklearn.')
 
@@ -185,7 +189,12 @@ class KNNSearching:
             rscv.fit(self.X, self.y)
             print('Kneighbors searching ends')
 
-            return KNeighborsClassifier(rscv.best_params_)
+            return KNeighborsClassifier(n_neighbors=rscv.best_params_['n_neighbors'],
+                                        weights=rscv.best_params_['weights'],
+                                        algorithm=rscv.best_params_['algorithm'],
+                                        leaf_size=rscv.best_params_['leaf_size'],
+                                        p=rscv.best_params_['p'],
+                                        metric=rscv.best_params_['metric'])
         else:
             raise ValueError(f'Algorithm: {self.algorithm} not supported. You can use optuna or sklearn.')
 
@@ -358,7 +367,7 @@ class LRSearching:
             rscv.fit(self.X, self.y)
             print('LR searching ends')
 
-            return LogisticRegression(rscv.best_params_)
+            return LogisticRegression(solver=rscv.best_params_['solver'], max_iter=rscv.best_params_['max_iter'])
         else:
             raise ValueError(f'Algorithm: {self.algorithm} not supported. You can use optuna or sklearn.')
 
@@ -420,7 +429,6 @@ class RFSearching:
                                           max_features=rscv.best_params_['max_features'])
         else:
             raise ValueError(f'Algorithm: {self.algorithm} not supported. You can use optuna or sklearn.')
-
 
 
 class MLPSearching:
@@ -490,7 +498,13 @@ class MLPSearching:
             rscv.fit(self.X, self.y)
             print('MLP Searching ends')
 
-            return MLPClassifier(rscv.best_params_)
+            return MLPClassifier(hidden_layer_sizes=(rscv.best_params_['hidden_layers_units'],
+                                                     rscv.best_params_['hidden_layers_amount']),
+                                 activation=rscv.best_params_['activation'],
+                                 solver=rscv.best_params_['solver'],
+                                 alpha=rscv.best_params_['alpha'],
+                                 learning_rate=rscv.best_params_['learning_rate'],
+                                 max_iter=rscv.best_params_['max_iter'])
         else:
             raise ValueError(f'Algorithm: {self.algorithm} not supported. You can use optuna or sklearn.')
 

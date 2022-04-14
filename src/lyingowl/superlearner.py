@@ -37,6 +37,8 @@ class SuperLearner:
         self.hyperparameters_optimizer = hyperparameters_optimizer
         self.superlearner_predictions = None
 
+        # Directories -------------------------------------------------------------
+        self.tlo_directory = f'{directory}/TLO'
 
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -46,7 +48,12 @@ class SuperLearner:
         else:
             print("raise FileExistsError(f'{directory}/TLO already exists, please set up warm start')")
 
-        self.tlo_directory = f'{directory}/TLO'
+        self.data_directory = f'{directory}/data'
+
+        if not os.path.exists(self.data_directory):
+            os.makedirs(self.data_directory)
+        else:
+            print("raise FileExistsError(f'{directory}/data already exists, please set up warm start')")
 
         # TODO: make warm start
 
@@ -88,9 +95,9 @@ class SuperLearner:
                            GaussianNB(),
                            KNeighborsClassifier(),
                            xgb.XGBClassifier(eval_metric='auc', use_label_encoder=False)]
-                           
+
         self.supervising_bool = [True, False]
-        
+
         if self.testing:
             self.lang_models = [self.lang_models[0]]
             self.supervising_bool = [False]
@@ -104,7 +111,7 @@ class SuperLearner:
                     self.est_models_labels.append(f'{lang_model}_{est_model.__class__.__name__}_{supervising}')
 
         self.model_count = len(self.est_models_labels)
-        
+
         print(f'Model count = {self.model_count}')
 
         self.models_fitted = 0
@@ -143,7 +150,7 @@ class SuperLearner:
         self.betas_optimizer = beta_optimizer
 
         for lang_model in self.lang_models:
-            
+
             print(lang_model)
 
             data_transformer = DataTransformer(transformer=lang_model)
@@ -155,7 +162,7 @@ class SuperLearner:
             transformed_test = data_transformer.transform(self.test_text_data)
 
             transformed_predictions = data_transformer.transform(self.prediction_data)
-            
+
             print('data transformed')
 
             for est_model in self.est_models:
@@ -184,7 +191,7 @@ class SuperLearner:
                         self.predictions[current_model_label] = current_model.predict_proba(transformed_predictions)[:, 1]
 
                     # Evaluating the model ------------------------------------------------
-                    
+
                     self.training_data[current_model_label] = {}
                     self.validation_data[current_model_label] = {}
                     self.test_data[current_model_label] = {}
@@ -223,6 +230,49 @@ class SuperLearner:
 
                     # Saving the data -----------------------------------------------------
 
+                    dic_predictions = self.predictions.copy()
+                    dic_predictions['text'] = self.prediction_data
+
+                    dic_training_data = self.training_data['predictions'].copy()
+                    dic_training_data['labels'] = self.training_data['labels']
+
+                    dic_validation_data = self.validation_data['predictions'].copy()
+                    dic_validation_data['labels'] = self.validation_data['labels']
+
+                    dic_test_data = self.test_data['predictions'].copy()
+                    dic_test_data['labels'] = self.test_data['labels']
+
+                    # TODO: Check here for warm start
+                    # if len(os.listdir(self.data_directory)) == 0:
+                    if True:
+
+                        df_predictions = pd.DataFrame(dic_predictions)
+
+                        # training data df -------------------------------------------------------------------
+                        df_training = pd.DataFrame(dic_training_data)
+
+                        # validation data df -------------------------------------------------------------------
+                        df_validation = pd.DataFrame(dic_validation_data)
+
+                        # test data df -------------------------------------------------------------------
+                        df_test = pd.DataFrame(dic_test_data)
+
+                        # saving the data -------------------------------------------------------------------
+                        df_predictions.to_excel(f'{self.data_directory}/predictions.xlsx')
+                        df_training.to_excel(f'{self.data_directory}/training_data_predictions.xlsx')
+                        df_validation.to_excel(f'{self.data_directory}/validation_data_predictions.xlsx')
+                        df_test.to_excel(f'{self.data_directory}/test_data_predictions.xlsx')
+                    else:
+                        try:
+                            df_predictions = pd.read_excel(f'{self.data_directory}/predictions.xlsx')
+                            df_training = pd.read_excel(f'{self.data_directory}/training_data_predictions.xlsx')
+                            df_validation = pd.read_excel(f'{self.data_directory}/validation_data_predictions.xlsx')
+                            df_test = pd.read_excel(f'{self.data_directory}/test_data_predictions.xlsx')
+                        except FileNotFoundError as e:
+                            print('The data directory is not empty, but the files are not found. '
+                                  'Please, check the directory and the files.')
+                            raise e
+
                     # One file for accuracies
                     # One directory for predictions
                     # One file for training data, one for validation data, one for test data, and one for predictions
@@ -252,14 +302,14 @@ class SuperLearner:
 
         validation_predictions = None
         test_predictions = None
-        
+
         for trained_model in self.validation_data.keys():
-            
+
             if validation_predictions is None:
                 validation_predictions = self.validation_data[trained_model]['predictions']
                 test_predictions = self.test_data[trained_model]['predictions']
                 continue
-                
+
             validation_predictions = np.column_stack((validation_predictions,
                                                       self.validation_data[trained_model]['predictions']))
 
@@ -307,7 +357,7 @@ class SuperLearner:
                 predictions = self.predictions[trained_model]
                 continue
             predictions = np.column_stack((predictions, self.predictions[trained_model]))
-            
+
         predictions = predictions.T
 
         return predict_nnls_optuna(predictions, self.betas, self.betas_optimizer)
@@ -344,7 +394,7 @@ class SuperLearner:
                 supervised = ' Supervised'
             else:
                 supervised = ' Unsupervised'
-                
+
             if model_[structure['model']] == 'SuperLearner':
                 supervised = ''
 
@@ -357,7 +407,7 @@ class SuperLearner:
         df_HM = df_HM.sort_values(by=['model', 'language model'])
 
         # TODO: Warning! Could mess with superlearner
-        
+
         title__ = 'Beta' if beta else f'{data_type.capitalize()} data: {metric}'
 
         heatmap = AccHeatmap(df=df_HM,
@@ -369,7 +419,7 @@ class SuperLearner:
         heatmap.plot()
 
     def save_data(self) -> None:
-        
+
         if not self.fitted:
             raise RuntimeError('SuperLearner not fitted yet')
 
@@ -422,9 +472,9 @@ class SuperLearner:
                              'SuperLearner_predictions': self.superlearner_predictions})
 
         # --------------------------------------------------------------------------------------------------------------
-        
+
         data_dir = f'{self.tlo_directory}/data'
-        
+
         if not os.path.isdir(data_dir):
             os.mkdir(data_dir)
 
@@ -433,7 +483,7 @@ class SuperLearner:
         print('Data Saved')
 
 
-#sl = SuperLearner(['bruh', 'bruh2'], [1, 0], '/Users/nizarmichaud/Documents/LyingOwl_SuperLearner_Test_0/')
+# sl = SuperLearner(['bruh', 'bruh2'], [1, 0], '/Users/nizarmichaud/Documents/LyingOwl_SuperLearner_Test_0/')
 
 # Computing everything from data that went out from AWS:
 """
