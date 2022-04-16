@@ -15,6 +15,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import train_test_split
 import os
+import time
 
 
 # ALWAYS USE NNLS_OPTIMIZER FOR SUPERLEARNER ! TODO: Need to check on other datasets
@@ -86,6 +87,8 @@ class SuperLearner:
                             'nltk',
                             'spacy',
                             'textblob']
+                            
+        self.tokenizers_labels = ['nltk', 'spacy', 'textblob']
 
         self.est_models = [RandomForestClassifier(),
                            LogisticRegression(),
@@ -99,7 +102,8 @@ class SuperLearner:
         self.supervising_bool = [True, False]
 
         if self.testing:
-            self.lang_models = [self.lang_models[0]]
+           #  self.lang_models = self.lang_models[-3:-1]
+            self.lang_models = self.tokenizers_labels
             self.supervising_bool = [False]
             self.est_models = self.est_models[:3]
 
@@ -152,17 +156,34 @@ class SuperLearner:
         for lang_model in self.lang_models:
 
             print(lang_model)
-
+            
             data_transformer = DataTransformer(transformer=lang_model)
+            
+            if lang_model not in self.tokenizers_labels:
+    
+                transformed_train = data_transformer.transform(self.train_text_data)
+    
+                transformed_validation = data_transformer.transform(self.validation_text_data)
+    
+                transformed_test = data_transformer.transform(self.test_text_data)
+    
+                transformed_predictions = data_transformer.transform(self.prediction_data)
+            else:
+                # Need to tokenize like this else it would mess up with the length of input data
+                tokenize_text = np.append(self.categorized_data, self.prediction_data)
+                transformed_tokenized = data_transformer.transform(tokenize_text)
+                
+                tokenized_cat = transformed_tokenized[:len(self.categorized_data)]
+                transformed_predictions = transformed_tokenized[len(self.categorized_data):]
+                
+                transformed_train, tokenized_test = train_test_split(tokenized_cat, test_size=0.2,
+                                                                        random_state=42)
 
-            transformed_train = data_transformer.transform(self.train_text_data)
-
-            transformed_validation = data_transformer.transform(self.validation_text_data)
-
-            transformed_test = data_transformer.transform(self.test_text_data)
-
-            transformed_predictions = data_transformer.transform(self.prediction_data)
-
+                transformed_validation, transformed_test = train_test_split(tokenized_test, test_size=0.5,
+                                                                                random_state=42)
+       
+                
+                
             print('data transformed')
 
             for est_model in self.est_models:
@@ -180,9 +201,11 @@ class SuperLearner:
                                                               ntrials=10)
 
                     # Fitting the model --------------------------------------------------
-
+                    model_startTime = time.time()
                     current_model.fit(transformed_train, self.train_label_data,
                                       algorithm=self.hyperparameters_optimizer)
+                    print(f'{current_model_label} took {time.time() - model_startTime}')
+                                      
 
                     # ----------------------------------------------------------------------
 
@@ -233,14 +256,14 @@ class SuperLearner:
                     dic_predictions = self.predictions.copy()
                     dic_predictions['text'] = self.prediction_data
 
-                    dic_training_data = self.training_data['predictions'].copy()
-                    dic_training_data['labels'] = self.training_data['labels']
+                    dic_training_data = {key: self.training_data[key]['predictions'] for key in list(self.training_data.keys())}
+                    dic_training_data['labels'] = self.training_data[list(self.training_data.keys())[0]]['labels']
 
-                    dic_validation_data = self.validation_data['predictions'].copy()
-                    dic_validation_data['labels'] = self.validation_data['labels']
+                    dic_validation_data = {key: self.validation_data[key]['predictions'] for key in list(self.validation_data.keys())}
+                    dic_validation_data['labels'] = self.validation_data[list(self.validation_data.keys())[0]]['labels']
 
-                    dic_test_data = self.test_data['predictions'].copy()
-                    dic_test_data['labels'] = self.test_data['labels']
+                    dic_test_data = {key: self.test_data[key]['predictions'] for key in list(self.test_data.keys())}
+                    dic_test_data['labels'] = self.test_data[list(self.test_data.keys())[0]]['labels']
 
                     # TODO: Check here for warm start
                     # if len(os.listdir(self.data_directory)) == 0:

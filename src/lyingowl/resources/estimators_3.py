@@ -100,7 +100,9 @@ class XGBSearching:
         return self.accuracy_metric(self.y, self.model.predict(self.X))
 
     def search(self):
-        if self.algorithm == 'optuna':
+        if self.algorithm in ['optuna', 'sklearn']:
+            self.accuracy_metric = balanced_accuracy_score
+            print('XGB searching only on Optuna #TODO check this')
             direction = "maximize"
             study = optuna.create_study(direction=direction)
             callbacks = ThresholdReachedCallback(threshold=.999, direction=direction)
@@ -111,14 +113,13 @@ class XGBSearching:
                                      n_estimators=study.best_params['n_estimators'],
                                      booster=study.best_params['booster'],
                                      learning_rate=study.best_params['learning_rate'])
-        elif self.algorithm == 'sklearn':
+        elif self.algorithm == 'sklearn_____':
 
             # Use RandomizedSearchCV to find the best parameters.
 
             # Create the RSCV object and define its parameters
             print('XGB searching begins')
-            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric,
-                                      n_jobs=-1)
+            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric)
             rscv.fit(self.X, self.y)
             print('XGB searching ends')
 
@@ -184,8 +185,7 @@ class KNNSearching:
 
             # Create the RSCV object and define its parameters
             print('KNeighbors searching begins')
-            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric,
-                                      n_jobs=-1)
+            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric)
             rscv.fit(self.X, self.y)
             print('Kneighbors searching ends')
 
@@ -262,8 +262,7 @@ class DTSearching:
 
             # Create the RSCV object and define its parameters
             print('DT searching begins')
-            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric,
-                                      n_jobs=-1)
+            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric)
             rscv.fit(self.X, self.y)
             print('DT searching ends')
             
@@ -317,8 +316,7 @@ class SVCSearching:
 
             # Create the RSCV object and define its parameters
             print('SVC searching begins')
-            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric,
-                                      n_jobs=-1)
+            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric)
             rscv.fit(self.X, self.y)
             print('SVC searching ends')
 
@@ -493,13 +491,14 @@ class MLPSearching:
 
             # Create the RSCV object and define its parameters
             print('MLP Searching begins')
-            rscv = RandomizedSearchCV(self.model, self.params, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric,
-                                      n_jobs=-1)
-            rscv.fit(self.X, self.y)
+            params_sklearn = self.params.copy()
+            del params_sklearn['hidden_layers_units']
+            del params_sklearn['hidden_layers_amount']
+            rscv = RandomizedSearchCV(self.model, params_sklearn, n_iter=self.ntrials, cv=5, scoring=self.accuracy_metric)
+            rscv.fit(self.X, self.y)  # Issues with layer size searching... not a generated tuple...
             print('MLP Searching ends')
 
-            return MLPClassifier(hidden_layer_sizes=(rscv.best_params_['hidden_layers_units'],
-                                                     rscv.best_params_['hidden_layers_amount']),
+            return MLPClassifier(hidden_layer_sizes=rscv.best_params_['hidden_layer_sizes'],
                                  activation=rscv.best_params_['activation'],
                                  solver=rscv.best_params_['solver'],
                                  alpha=rscv.best_params_['alpha'],
@@ -708,7 +707,7 @@ class DataTransformer:
         elif transformer in tokenizers_models:
             self.transformer = Tokenizers(self.transformer_label)
         else:
-            raise ValueError('Language model not supported.')
+            raise ValueError(f'Language model not supported. {transformer}')
 
     def transform(self, X):
         print(f'{self.transformer_label}: data beign transformed')

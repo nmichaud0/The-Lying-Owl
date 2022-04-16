@@ -14,8 +14,8 @@ print(df.columns)
 sentences = df[0].to_numpy()
 labels = df[1].to_numpy()
 
-sl = SuperLearner(categorized_data=sentences[:200],
-                  categorized_labels=labels[:200],
+sl = SuperLearner(categorized_data=sentences[:500],
+                  categorized_labels=labels[:500],
                   prediction_data=sentences[200:205],
                   testing=False,
                   directory='superlearner_testing',
