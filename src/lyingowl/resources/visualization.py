@@ -2,29 +2,35 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
-class AccHeatmap:
-    def __init__(self, df, title, x_title, y_title, z_range):
-        self.df = df
-        self.title = title
-        self.x_title = x_title
-        self.y_title = y_title
-        self.z_range = z_range
+class AccHeatmap(go.Figure):
+    def __init__(self, df, title, x_title, y_title, z_range, **kwargs):
+        super().__init__(**kwargs)
+        self._df = df
+        self._title = title
+        self._x_title = x_title
+        self._y_title = y_title
+        self._z_range = z_range
+        self._heatmap = None
 
     def plot(self):
         fig = go.Figure(data=go.Heatmap(
-            z=self.df['accuracy'],
-            x=self.df['language model'],
-            y=self.df['model'],
+            z=self._df['accuracy'],
+            x=self._df['language model'],
+            y=self._df['model'],
             colorscale='Bluered',
-            zmin=self.z_range[0],
-            zmax=self.z_range[1]
+            zmin=self._z_range[0],
+            zmax=self._z_range[1]
         ))
         fig.update_layout(
-            title=self.title,
-            xaxis_title=self.x_title,
-            yaxis_title=self.y_title,
+            title=self._title,
+            xaxis_title=self._x_title,
+            yaxis_title=self._y_title,
         )
-        fig.show()
+
+        self._heatmap = fig
+
+    def write_html(self, filename):
+        self._heatmap.write_html(filename)
 
 
 if __name__ == '__main__':
@@ -37,12 +43,11 @@ if __name__ == '__main__':
     acc_mes = cohen_kappa_score
     acc_mes_label = "Cohen's Kappa"
 
-    df = pd.read_excel('/Users/nizarmichaud/Downloads/joe_dutch_clean_sub_super_learner ACA_Overnight.xlsx')
+    df = pd.read_excel('/Users/nizarmichaud/Downloads/superlearner_testing 3/TLO/data/betas_and_metrics.xlsx')
     df = df.drop(columns=['Unnamed: 0'])
 
-    true_values = df['true_values'].to_list()
-    df_models = df.drop(columns=['true_values'])
-    models = df_models.columns
+    #df_models = df.drop(columns=['true_values'])
+    models = df['models_fitted_labels'].to_list()
 
     def tokenize_models(models):
         return [model.split('_') for model in models]
@@ -55,18 +60,15 @@ if __name__ == '__main__':
     z = []  # accuracy
 
     for i, model in enumerate(models_tokenized):
-        if model[structure['soft_hard']] == 'proba':
-            continue
 
         if model[structure['supervised learner']] == 'True':
-            supervised = ' Supervised'
+            supervised = ' Hyperparameter Tuning'
         else:
-            supervised = ' Unsupervised'
+            supervised = ' No Hyperparameter Tuning'
 
         x.append(model[structure['model']] + supervised)
         y.append(model[structure['language model']])
-        print(model, df_models[models[i]].to_list()[0])
-        z.append(acc_mes(true_values, df_models[models[i]].to_list()))
+    z = df['test_cohen_kappa_score'].tolist()
 
     df_acc = pd.DataFrame({'model': x, 'language model': y, 'accuracy': z})
     df_acc = df_acc.sort_values(by=['model', 'language model'])

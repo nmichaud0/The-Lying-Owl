@@ -2,6 +2,12 @@ import time
 
 startTime = time.time()
 
+import warnings
+from sklearn import exceptions as sklearn_exceptions
+
+for warning in [FutureWarning, sklearn_exceptions.ConvergenceWarning]:
+    warnings.filterwarnings("ignore", category=warning)
+
 # ML
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
@@ -22,7 +28,7 @@ from sentence_transformers import SentenceTransformer
 # Tokenizers
 import nltk
 
-nltk.download('punkt')
+nltk.download('punkt', quiet=True)
 import spacy
 from textblob import TextBlob
 
@@ -32,6 +38,7 @@ import numpy as np
 import operator
 import joblib
 import pandas as pd
+import os
 
 
 class ThresholdReachedCallback(object):
@@ -599,7 +606,10 @@ class Tokenizers:
             return [nltk.word_tokenize(i) for i in Ltext]
         if self.tokenizer_type == 'spacy':
             nlp = spacy.load(
-                'en_core_web_sm')  # Refer to this page if issues encountered: https://github.com/explosion/spaCy/issues/4577
+                'en_core_web_sm')  # Refer to this page if issues encountered:
+            # https://github.com/explosion/spaCy/issues/4577
+            # Can also try this page: https://anaconda.org/conda-forge/spacy-model-en_core_web_sm
+            # Or simply this command with conda: conda install -c conda-forge spacy-model-en_core_web_sm
             return [[token.text for token in nlp(i)] for i in Ltext]
         if self.tokenizer_type == 'textblob':
             return [TextBlob(i).words for i in Ltext]
